@@ -29,12 +29,6 @@ import (
 	"strings"
 )
 
-const (
-	ipRegex   = "^fc[a-f0-9]{1,2}:([a-f0-9]{0,4}:){2,6}[a-f0-9]{1,4}$"
-	pathRegex = "([0-9a-f]{4}\\.){3}[0-9a-f]{4}"
-	hostRegex = "^([a-zA-Z0-9]([a-zA-Z0-9\\-\\.]{0,}[a-zA-Z0-9]))$"
-)
-
 type CjdnsAdmin struct {
 	Address  string `json:"addr"`
 	Port     int    `json:"port"`
@@ -128,34 +122,26 @@ func adminConnect() (user *admin.Admin, err error) {
 	if AdminBind == "" || AdminPassword == "" {
 		// If we still have no idea which configuration file to use
 		if File == "" {
-			var cjdnsAdmin *CjdnsAdmin
-			if !userSpecifiedCjdnsadmin {
-				cjdnsAdmin, err = loadCjdnsadmin()
-				if err != nil {
-					fmt.Println("Unable to load configuration file:", err)
-					return
-				}
-			} else {
-				cjdnsAdmin, err = readCjdnsadmin(userCjdnsadmin)
-				if err != nil {
-					fmt.Println("Error loading cjdnsadmin file:", err)
-					return
-				}
+			// Try getting it from the .cjdnsadmin file
+			cjdAdmin, err := loadCjdnsadmin()
+			if err != nil {
+				err = fmt.Errorf("Unable to load configuration file:", err.Error())
+				return nil, err
 			}
 
 			// Set the admin credentials from the .cjdnsadmin file
-			AdminPassword = cjdnsAdmin.Password
-			AdminBind = cjdnsAdmin.Address + ":" + strconv.Itoa(cjdnsAdmin.Port)
+			AdminPassword = cjdAdmin.Password
+			AdminBind = cjdAdmin.Address + ":" + strconv.Itoa(cjdAdmin.Port)
 
 			// If File and OutFile aren't already set, set them
 			// Note that they could still be empty if the "config"
 			// entry isnt in .cjdnsadmin
 			if File == "" {
-				File = cjdnsAdmin.Config
+				File = cjdAdmin.Config
 			}
 
 			if OutFile == "" {
-				OutFile = cjdnsAdmin.Config
+				OutFile = cjdAdmin.Config
 			}
 		} else {
 			// File is set so use it
@@ -207,6 +193,15 @@ func padIPv6(ip net.IP) string {
 		parts[i] = raw[i*4 : (i+1)*4]
 	}
 	return strings.Join(parts, ":")
+}
+
+type Route struct {
+	IP      string
+	Path    string
+	RawPath uint64
+	Link    float64
+	RawLink int64
+	Version int64
 }
 
 // Dumps the entire routing table and structures it
@@ -262,109 +257,6 @@ func getTable(user *admin.Admin) (table []*Route) {
 	}
 
 	return
-}
-
-type Target struct {
-	Target   string
-	Supplied string
-}
-
-func validIP(input string) (result bool) {
-	result, _ = regexp.MatchString(ipRegex, input)
-	return
-}
-func validPath(input string) (result bool) {
-	result, _ = regexp.MatchString(pathRegex, input)
-	return
-}
-func validHost(input string) (result bool) {
-	result, _ = regexp.MatchString(hostRegex, input)
-	return
-}
-
-// Sets target.Target to the requried IP or cjdns path
-func setTarget(data []string, usePath bool) (target Target, err error) {
-	if len(data) == 0 {
-		err = fmt.Errorf("Invalid target specified")
-		return
-	}
-	input := data[0]
-	if input != "" {
-
-		if validIP(input) {
-			target.Supplied = data[0]
-			target.Target = padIPv6(net.ParseIP(input))
-			return
-
-		} else if validPath(input) && usePath {
-			target.Target = input
-			target.Supplied = data[0]
-			return
-
-		} else if validHost(input) {
-			var ips []string
-			ips, err = resolveHost(input)
-			if err != nil {
-				return
-			}
-			// Return the first result
-			for _, addr := range ips {
-				target.Target = addr
-				target.Supplied = input
-				return
-			}
-
-		} else {
-			err = fmt.Errorf("Invalid IPv6 address, cjdns path, or hostname")
-			return
-		}
-	}
-
-	if usePath {
-		err = fmt.Errorf("You must specify an IPv6 address, hostname or cjdns path")
-		return
-	}
-	err = fmt.Errorf("You must specify an IPv6 address or hostname")
-	return
-}
-
-func usage() {
-	fmt.Println("cjdcmd version ", Version)
-	fmt.Println("")
-	fmt.Println("Usage: cjdcmd command [arguments]")
-	fmt.Println("")
-	fmt.Println("The commands are:")
-	fmt.Println("")
-        //fmt.Println("----------------------------------------------------------------------------------------------------")
-        fmt.Println("ping <IPv6/DNS/Path>                         --  Preforms a cjdns ping to a specified node")
-        fmt.Println("route <IPv6/DNS/Path>                        --  Prints all routes to a specific node")
-        fmt.Println("traceroute <IPv6/DNS/Path>                   --  Performs a traceroute on a specific node by pinging")
-        fmt.Println("                                                  each known hop to the tar on all known paths")
-        fmt.Println("ip <cjdns public key>                        --  Converts a cjdns public key to its corresponding")
-        fmt.Println("                                                  IPv6 address")
-        fmt.Println("peers                                        --  Displays a list of currently connected peers")
-        fmt.Println("host <IPv6/DNS>                              --  Returns a list of all known IP addresses for a")
-        fmt.Println("                                                  specified hostname or the hostname for an address")
-        fmt.Println("hostname [new hypedns hostname]              --  Without arguments, returns your HypeDNS hostname.")
-        fmt.Println("                                                  Passing a new hostname will change your HypeDNS")
-        fmt.Println("                                                  record")
-        fmt.Println("cjdnsadmin <-file /path/to/cjdroute.conf>    --  Generates a .cjdnsadmin file in your home diectory")
-        fmt.Println("                                                  using the specified cjdroute.conf as input")
-        fmt.Println("addpeer '<json peer details>'                --  Adds the peer details to your config file")
-        fmt.Println("addpass [password]                           --  Adds the password to your config file, or generates")
-        fmt.Println("                                                  one and then adds that")
-        fmt.Println("cleanconfig [-file] [-outfile]               --  Strips all comments from the config file and saves")
-        fmt.Println("                                                  it at outfile")
-        fmt.Println("log [-l level] [-logfile file] [-line]       --  Prints cjdns logs to stdout")
-        fmt.Println("passgen                                      --  Generates a pseudo-random alphanumeric password")
-        fmt.Println("                                                  between 15 and 50 characters in length")
-        fmt.Println("dump                                         --  Dumps the entire routing table to stdout")
-        fmt.Println("kill                                         --  Gracefully kills cjdns")
-        fmt.Println("memory                                       --  Returns the bytes of memory allocated by the router")
-	fmt.Println("Use `cjdcmd --help` for a list of flags.")
-        fmt.Println("")
-
-
 }
 
 // Returns a random alphanumeric string where length is <= max >= min
