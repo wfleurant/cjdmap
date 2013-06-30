@@ -23,41 +23,6 @@ func getHops(table []*Route, fullPath uint64) (output []*Route) {
 /* TODO
 Store pings in a per route/host map for caching.
 */
-
-func (t *target) Traceroutes(user *admin.Admin) []*Host {
-	var hopSets [][]*Route
-	table := getTable(user)
-
-	for _, route := range table {
-		if route.IP != t.addr {
-			continue
-		}
-		if route.Link < 1 {
-			continue
-		}
-		hops := getHops(table, route.RawPath)
-		if len(hops) < 1 {
-			continue
-		}
-
-		hopSets = append(hopSets, hops)
-	}
-
-	traceChan := make(chan *Host)
-	traces := make([]*Host, 0, len(hopSets))
-	for _, hops := range hopSets {
-		go trace(user, t, hops, traceChan)
-	}
-	for i := 0; i < len(hopSets); i++ {
-		trace := <-traceChan
-		if trace == nil {
-			continue
-		}
-		traces = append(traces, trace)
-	}
-	return traces
-}
-
 func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
 	startTime := time.Now().Unix()
 	trace := &Trace{Proto: "cjdns"}
@@ -109,3 +74,65 @@ func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
 
 	results <- h
 }
+
+func traceAll(user *admin.Admin) []*Host {
+	var hopSets [][]*Route
+	table := getTable(user)
+
+	for _, route := range table {
+		if route.Link < 1 {
+			continue
+		}
+		hops := getHops(table, route.RawPath)
+		if len(hops) < 1 {
+			continue
+		}
+		hopSets = append(hopSets, hops)
+	}
+	traceChan := make(chan *Host)
+	traces := make([]*Host, 0, len(hopSets))
+	for _, hops := range hopSets {
+		t, _ := newTarget(hops[len(hops)-1].IP)
+		go trace(user, t, hops, traceChan)
+	}
+	for i := 0; i < len(hopSets); i++ {
+		trace := <-traceChan
+		if trace != nil {
+			traces = append(traces, trace)
+		}
+	}
+	return traces
+}
+
+func (t *target) Traceroutes(user *admin.Admin) []*Host {
+	var hopSets [][]*Route
+	table := getTable(user)
+
+	for _, route := range table {
+		if route.IP != t.addr {
+			continue
+		}
+		if route.Link < 1 {
+			continue
+		}
+		hops := getHops(table, route.RawPath)
+		if len(hops) < 1 {
+			continue
+		}
+		hopSets = append(hopSets, hops)
+	}
+
+	traceChan := make(chan *Host)
+	traces := make([]*Host, 0, len(hopSets))
+	for _, hops := range hopSets {
+		go trace(user, t, hops, traceChan)
+	}
+	for i := 0; i < len(hopSets); i++ {
+		trace := <-traceChan
+		if trace != nil {
+			traces = append(traces, trace)
+		}
+	}
+	return traces
+}
+
