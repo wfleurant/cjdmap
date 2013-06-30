@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/xml"
-	"sync"
 )
 
 type HostState string
@@ -44,9 +43,8 @@ type Host struct {
 	Status    *Status
 	Address   *Address
 	Hostnames []*Hostname `xml:"hostnames>hostname"`
-	Traces    []*Trace
+	Trace     *Trace
 	Times     *Times
-	mu        sync.RWMutex
 }
 
 type Status struct {

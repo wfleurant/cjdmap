@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/inhies/go-cjdns/admin"
 	"math"
+	"time"
 )
 
 func getHops(table []*Route, fullPath uint64) (output []*Route) {
@@ -23,12 +24,12 @@ func getHops(table []*Route, fullPath uint64) (output []*Route) {
 Store pings in a per route/host map for caching.
 */
 
-func (h *Host) Traceroute(user *admin.Admin) {
+func (t *target) Traceroutes(user *admin.Admin) []*Host {
 	var hopSets [][]*Route
 	table := getTable(user)
 
 	for _, route := range table {
-		if route.IP != h.Address.Addr {
+		if route.IP != t.addr {
 			continue
 		}
 		if route.Link < 1 {
@@ -42,39 +43,69 @@ func (h *Host) Traceroute(user *admin.Admin) {
 		hopSets = append(hopSets, hops)
 	}
 
-	traceChan := make(chan *Trace)
+	traceChan := make(chan *Host)
+	traces := make([]*Host, 0, len(hopSets))
 	for _, hops := range hopSets {
-		go trace(user, hops, traceChan)
+		go trace(user, t, hops, traceChan)
 	}
 	for i := 0; i < len(hopSets); i++ {
 		trace := <-traceChan
 		if trace == nil {
 			continue
 		}
-		h.mu.Lock()
-		h.Traces = append(h.Traces, trace)
-		h.mu.Unlock()
+		traces = append(traces, trace)
 	}
-	return
+	return traces
 }
 
-func trace(user *admin.Admin, hops []*Route, results chan *Trace) {
-	t := &Trace{Proto: "cjdns"}
-	for y, p := range hops[1:] {
-		tRoute := &Ping{}
-		tRoute.Target = p.Path
-		err := pingNode(user, tRoute)
-		if err != nil || tRoute.Error == "timeout" {
-			results <- nil
-			return
+func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
+	startTime := time.Now().Unix()
+	trace := &Trace{Proto: "cjdns"}
+	var lastHop *Hop
+	for y, p := range hops {
+		if y == 0 {
+			continue
 		}
+		/*
+			tRoute := &Ping{}
+			tRoute.Target = p.Path
+			err := pingNode(user, tRoute)
+			print("\a")
+			if err != nil || tRoute.Error == "timeout" {
+				results <- nil
+				return
+			}
+		*/
 
-		h := &Hop{
+		lastHop = &Hop{
 			TTL:    y,
-			RTT:    tRoute.TTime,
+			RTT:    1,
 			IPAddr: p.IP,
 		}
-		t.Hops = append(t.Hops, h)
+		trace.Hops = append(trace.Hops, lastHop)
 	}
-	results <- t
+
+	endTime := time.Now().Unix()
+	h := &Host{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Status: &Status{
+			State:     HostStateUp,
+			Reason:    "CJDNS-Ping",
+			ReasonTTL: 56,
+		},
+		Address: newAddress(t.addr),
+		Trace:   trace,
+		Times: &Times{ // Don't know what to do with this element yet.
+			SRTT:   1,
+			RTTVar: 1,
+			To:     1,
+		},
+	}
+
+	if t.name != "" {
+		h.Hostnames = []*Hostname{&Hostname{Name: t.name, Type: HostnameTypeUser}}
+	}
+
+	results <- h
 }

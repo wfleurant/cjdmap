@@ -47,33 +47,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	var args string
+	for _, arg := range os.Args {
+		args = args + " " + arg
+	}
+
 	startTime := time.Now()
 	run := &NmapRun{
 		Scanner:          "cjdmap",
-		Args:             fmt.Sprint(os.Args[:]),
+		Args:             args,
 		Start:            startTime.Unix(),
 		Startstr:         startTime.String(),
 		Version:          "0.0a",
 		XMLOutputVersion: "1.04",
 	}
 
-	run.Hosts = make([]*Host, 0, len(os.Args[1:]))
+	targets := make([]*target, 0, len(os.Args[1:]))
 
 	for _, arg := range os.Args[1:] {
-		target, err := newHost(arg)
+		target, err := newTarget(arg)
 		if err != nil {
 			fmt.Println("Error:", err)
 			continue
 		}
-		run.Hosts = append(run.Hosts, target)
+		targets = append(targets, target)
 	}
 
-	for _, target := range run.Hosts {
-		target.CheckStatus(user)
-		if target.Status.State != HostStateUp {
-			continue
-		}
-		target.Traceroute(user)
+	for _, target := range targets {
+		traces := target.Traceroutes(user)
+		run.Hosts = append(run.Hosts, traces...)
 	}
 
 	hostsTotal := cap(run.Hosts)
@@ -84,7 +86,7 @@ func main() {
 	run.Finished = &Finished{
 		Time:    stopTime.Unix(),
 		TimeStr: stopTime.String(),
-		Elapsed: float64(stopTime.Sub(startTime)*time.Millisecond) * 1000,
+		//Elapsed: (stopTime.Sub(startTime)*time.Millisecond).String(),
 		Exit:    "success",
 	}
 	run.HostStats = &Hosts{

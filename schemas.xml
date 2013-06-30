@@ -1,4 +1,5 @@
 <?xml version="1.0"?>
 <locatingRules xmlns="http://thaiopensource.com/ns/locating-rules/1.0">
+  <uri resource="reference.xml" uri="nmap.rnc"/>
   <uri resource="test.xml" uri="nmap.rnc"/>
 </locatingRules>
