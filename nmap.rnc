@@ -1,0 +1,318 @@
+# nmap.dtd
+# This is the DTD for Nmap's XML output (-oX) format.
+# $Id$
+# 
+# Originally written by:
+# William McVey <wam@cisco.com> <wam+nmap@wamber.net>
+# 
+# Now maintained by Fyodor <fyodor@insecure.org> as part of Nmap.     
+# 
+# To validate using this file, simply add a DOCTYPE line similar to:
+# <!DOCTYPE nmaprun SYSTEM "nmap.dtd">
+# to the nmap output immediately below the prologue (the first line).  This
+# should allow you to run a validating parser against the output (so long
+# as the DTD is in your parser's DTD search path).
+# 
+# Bugs:
+# Most of the elements are "locked" into the specific order that nmap
+# generates, when there really is no need for a specific ordering.
+# This is primarily because I don't know the xml DTD construct to
+# specify "one each of this list of elements, in any order".  If there
+# is a construct similar to SGML's '&' operator, please let me know.
+# 
+# Portions Copyright (c) 2001-2008 Insecure.Com LLC
+# Portions Copyright (c) 2001 by Cisco systems, Inc.
+# 
+# Permission to use, copy, modify, and distribute modified and
+# unmodified copies of this software for any purpose and without fee is
+# hereby granted, provided that (a) this copyright and permission notice
+# appear on all copies of the software and supporting documentation, (b)
+# the name of Cisco Systems, Inc. not be used in advertising or
+# publicity pertaining to distribution of the program without specific
+# prior permission, and (c) notice be given in supporting documentation
+# that use, modification, copying and distribution is by permission of
+# Cisco Systems, Inc.
+# 
+# Cisco Systems, Inc. makes no representations about the suitability
+# of this software for any purpose.  THIS SOFTWARE IS PROVIDED ``AS
+# IS'' AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+# WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+# FITNESS FOR A PARTICULAR PURPOSE.
+
+# parameter entities to specify common "types" used elsewhere in the DTD
+
+namespace a = "http://relaxng.org/ns/compatibility/annotations/1.0"
+
+attr_numeric = string
+attr_ipaddr = string
+attr_percent = string
+attr_type = "ipv4" | "ipv6" | "mac"
+host_states = "up" | "down" | "unknown" | "skipped"
+# see: nmap.c:statenum2str for list of port states
+
+# Maybe they should be enumerated as in scan_types below , but I
+
+# don't know how to escape states like open|filtered
+port_states = string
+hostname_types = "user" | "PTR"
+# see output.c:output_xml_scaninfo_records for scan types
+scan_types =
+  "syn"
+  | "ack"
+  | "bounce"
+  | "connect"
+  | "null"
+  | "xmas"
+  | "window"
+  | "maimon"
+  | "fin"
+  | "udp"
+  | "sctpinit"
+  | "sctpcookieecho"
+  | "ipproto"
+# <!ENTITY % ip_versions "(ipv4)" >
+port_protocols = "ip" | "tcp" | "udp" | "sctp"
+# Service detection confidence level (portlist.h:struct serviceDeductions)
+service_confs =
+  "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10"
+# This element was started in nmap.c:nmap_main().
+# It represents to the topmost element of the output document.
+nmaprun =
+  element nmaprun {
+    attlist_nmaprun,
+    scaninfo*,
+    verbose,
+    debugging,
+    (target
+     | taskbegin
+     | taskprogress
+     | taskend
+     | prescript
+     | postscript
+     | host
+     | output)*,
+    runstats
+  }
+attlist_nmaprun &=
+  attribute scanner { "nmap" },
+  attribute args { text }?,
+  attribute start { attr_numeric }?,
+  attribute startstr { text }?,
+  attribute version { text },
+  attribute profile_name { text }?,
+  attribute xmloutputversion { text }
+# this element is written in output.c:doscaninfo()
+scaninfo = element scaninfo { attlist_scaninfo, empty }
+attlist_scaninfo &=
+  attribute type { scan_types },
+  attribute scanflags { text }?,
+  attribute protocol { port_protocols },
+  attribute numservices { attr_numeric },
+  attribute services { text }
+# these elements are written in nmap.c:nmap_main()
+verbose = element verbose { attlist_verbose, empty }
+attlist_verbose &= attribute level { attr_numeric }?
+debugging = element debugging { attlist_debugging, empty }
+attlist_debugging &= attribute level { attr_numeric }?
+target = element target { attlist_target, empty }
+attlist_target &=
+  attribute specification { text },
+  attribute status { "skipped" }?,
+  attribute reason { "invalid" }?
+# this element is written in timing.c:beginOrEndTask()
+taskbegin = element taskbegin { attlist_taskbegin, empty }
+attlist_taskbegin &=
+  attribute task { text },
+  attribute time { attr_numeric },
+  attribute extrainfo { text }?
+# this element is written in timing.c:printStats()
+taskprogress = element taskprogress { attlist_taskprogress, empty }
+attlist_taskprogress &=
+  attribute task { text },
+  attribute time { attr_numeric },
+  attribute percent { attr_percent },
+  attribute remaining { attr_numeric },
+  attribute etc { attr_numeric }
+# this element is written in timing.c:beginOrEndTask()
+taskend = element taskend { attlist_taskend, empty }
+attlist_taskend &=
+  attribute task { text },
+  attribute time { attr_numeric },
+  attribute extrainfo { text }?
+# this element is started in nmap.c:nmap_main() and filled by
+# output.c:write_host_status(), output.c:printportoutput(), and
+# output.c:printosscanoutput()
+host =
+  element host {
+    attlist_host,
+    status,
+    address,
+    (address
+     | hostnames
+     | smurf
+     | ports
+     | os
+     | distance
+     | uptime
+     | tcpsequence
+     | ipidsequence
+     | tcptssequence
+     | hostscript
+     | trace)*,
+    times?
+  }
+attlist_host &=
+  attribute starttime { attr_numeric }?,
+  attribute endtime { attr_numeric }?,
+  attribute comment { text }?
+# these elements are written by output.c:write_xml_initial_hostinfo()
+status = element status { attlist_status, empty }
+attlist_status &=
+  attribute state { host_states },
+  attribute reason { text },
+  attribute reason_ttl { text }
+address = element address { attlist_address, empty }
+attlist_address &=
+  attribute addr { attr_ipaddr },
+  [ a:defaultValue = "ipv4" ] attribute addrtype { attr_type }?,
+  attribute vendor { text }?
+hostnames = element hostnames { attlist_hostnames, hostname* }
+attlist_hostnames &= empty
+hostname = element hostname { attlist_hostname, empty }
+attlist_hostname &=
+  attribute name { text }?,
+  attribute type { hostname_types }?
+# this element is written by output.c:write_host_status()
+smurf = element smurf { attlist_smurf, empty }
+attlist_smurf &= attribute responses { attr_numeric }
+# these elements are written by output.c:printportoutput()
+ports = element ports { attlist_ports, extraports*, port* }
+attlist_ports &= empty
+extraports = element extraports { attlist_extraports, extrareasons* }
+attlist_extraports &=
+  attribute state { port_states },
+  attribute count { attr_numeric }
+extrareasons = element extrareasons { attlist_extrareasons, empty }
+attlist_extrareasons &=
+  attribute reason { text },
+  attribute count { text }
+port = element port { attlist_port, state, owner?, service?, script* }
+attlist_port &=
+  attribute protocol { port_protocols },
+  attribute portid { attr_numeric }
+state = element state { attlist_state, empty }
+attlist_state &=
+  attribute state { port_states },
+  attribute reason { text },
+  attribute reason_ttl { text },
+  attribute reason_ip { text }?
+owner = element owner { attlist_owner, empty }
+attlist_owner &= attribute name { text }
+service = element service { attlist_service, cpe* }
+attlist_service &=
+  attribute name { text },
+  attribute conf { service_confs },
+  attribute method { "table" | "probed" },
+  attribute version { text }?,
+  attribute product { text }?,
+  attribute extrainfo { text }?,
+  attribute tunnel { "ssl" }?,
+  attribute proto { "rpc" }?,
+  attribute rpcnum { attr_numeric }?,
+  attribute lowver { attr_numeric }?,
+  attribute highver { attr_numeric }?,
+  attribute hostname { text }?,
+  attribute ostype { text }?,
+  attribute devicetype { text }?,
+  attribute servicefp { text }?
+cpe = element cpe { attlist_cpe, text }
+attlist_cpe &= empty
+script = element script { attlist_script, (table | elem)* }
+attlist_script &=
+  attribute id { text },
+  attribute output { text }
+table = element table { attlist_table, (table | elem)* }
+attlist_table &= attribute key { text }?
+elem = element elem { attlist_elem, text }
+attlist_elem &= attribute key { text }?
+os = element os { attlist_os, portused*, osmatch*, osfingerprint* }
+attlist_os &= empty
+portused = element portused { attlist_portused, empty }
+attlist_portused &=
+  attribute state { port_states },
+  attribute proto { port_protocols },
+  attribute portid { attr_numeric }
+osclass = element osclass { attlist_osclass, cpe* }
+attlist_osclass &=
+  attribute vendor { text },
+  attribute osgen { text }?,
+  attribute type { text }?,
+  attribute accuracy { text },
+  attribute osfamily { text }
+osmatch = element osmatch { attlist_osmatch, osclass* }
+attlist_osmatch &=
+  attribute name { text },
+  attribute accuracy { attr_numeric },
+  attribute line { attr_numeric }
+osfingerprint = element osfingerprint { attlist_osfingerprint, empty }
+attlist_osfingerprint &= attribute fingerprint { text }
+distance = element distance { attlist_distance, empty }
+attlist_distance &= attribute value { attr_numeric }
+uptime = element uptime { attlist_uptime, empty }
+attlist_uptime &=
+  attribute seconds { attr_numeric },
+  attribute lastboot { text }?
+tcpsequence = element tcpsequence { attlist_tcpsequence, empty }
+attlist_tcpsequence &=
+  attribute index { attr_numeric },
+  attribute difficulty { text },
+  attribute values { text }
+ipidsequence = element ipidsequence { attlist_ipidsequence, empty }
+attlist_ipidsequence &=
+  attribute class { text },
+  attribute values { text }
+tcptssequence = element tcptssequence { attlist_tcptssequence, empty }
+attlist_tcptssequence &=
+  attribute class { text },
+  attribute values { text }?
+trace = element trace { attlist_trace, hop* }
+attlist_trace &=
+  attribute proto { text }?,
+  attribute port { text }?
+hop = element hop { attlist_hop, empty }
+attlist_hop &=
+  attribute ttl { text },
+  attribute rtt { text }?,
+  attribute ipaddr { text }?,
+  attribute host { text }?
+times = element times { attlist_times, empty }
+attlist_times &=
+  attribute srtt { text },
+  attribute rttvar { text },
+  attribute to { text }
+# For embedding another type of output (screen output) like Zenmap does.
+output = element output { attlist_output, text }
+attlist_output &= attribute type { "interactive" }?
+# these elements are generated in output.c:printfinaloutput()
+runstats = element runstats { attlist_runstats, finished, hosts }
+attlist_runstats &= empty
+finished = element finished { attlist_finished, empty }
+attlist_finished &=
+  attribute time { attr_numeric },
+  attribute timestr { text }?,
+  attribute elapsed { attr_numeric },
+  attribute summary { text }?,
+  attribute exit { "error" | "success" }?,
+  attribute errormsg { text }?
+hosts = element hosts { attlist_hosts, empty }
+attlist_hosts &=
+  [ a:defaultValue = "0" ] attribute up { attr_numeric }?,
+  [ a:defaultValue = "0" ] attribute down { attr_numeric }?,
+  attribute total { attr_numeric }
+hostscript = element hostscript { attlist_hostscript, script+ }
+attlist_hostscript &= empty
+prescript = element prescript { attlist_prescript, script+ }
+attlist_prescript &= empty
+postscript = element postscript { attlist_postscript, script+ }
+attlist_postscript &= empty
+start = nmaprun
