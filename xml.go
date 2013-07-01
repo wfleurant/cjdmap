@@ -76,7 +76,7 @@ type Trace struct {
 type Hop struct {
 	XMLName xml.Name `xml:"hop"`
 	TTL     int      `xml:"ttl,attr"`
-	RTT     float64  `xml:"rtt,attr,omitempty"`
+	RTT     float32    `xml:"rtt,attr,omitempty"`
 	IPAddr  string   `xml:"ipaddr,attr,omitempty"`
 	Host    string   `xml:"host,attr,omitempty"`
 }

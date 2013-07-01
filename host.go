@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -15,14 +16,13 @@ func init() {
 type target struct {
 	addr string
 	name string
-	rtt time.Duration
-	xml *Host
+	rtt  time.Duration
+	xml  *Host
 }
 
 func getNameAddr(host string) (hostname, address string, err error) {
 	if validIP(host) {
 		address = host
-
 	} else if validHost(host) {
 		hostname = host
 		ips, err := net.LookupHost(host)
@@ -38,8 +38,20 @@ func getNameAddr(host string) (hostname, address string, err error) {
 		if address == "" {
 			return "", "", fmt.Errorf("Could not resolve %s to CJDNS address", host)
 		}
+
 	} else {
 		return "", "", fmt.Errorf("could not recognize host \"%s\"", host)
+	}
+
+	if len(address) != 39 {
+		couplets := strings.Split(address, ":")
+		address = fmt.Sprintf("%04s", couplets[0])
+		for _, couplet := range couplets[1:] {
+			address = address + fmt.Sprintf(":%04s", couplet)
+		}
+	}
+	if hostname == "" {
+		hostname = address[35:]
 	}
 	return
 }

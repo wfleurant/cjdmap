@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"github.com/inhies/go-cjdns/admin"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -21,33 +24,35 @@ func getHops(table []*Route, fullPath uint64) (output []*Route) {
 }
 
 /* TODO
-Store pings in a per route/host map for caching.
+Store pings in a per route/host map for caching and averaging.
 */
-func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
+func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 	startTime := time.Now().Unix()
-	trace := &Trace{Proto: "cjdns"}
-	var lastHop *Hop
+	trace := &Trace{Proto: "lookup"}
 	for y, p := range hops {
 		if y == 0 {
 			continue
 		}
-		/*
-			tRoute := &Ping{}
-			tRoute.Target = p.Path
-			err := pingNode(user, tRoute)
-			print("\a")
-			if err != nil || tRoute.Error == "timeout" {
-				results <- nil
-				return
-			}
-		*/
 
-		lastHop = &Hop{
+		response, err := admin.RouterModule_pingNode(user, p.IP, 1024)
+		if err != nil {
+			logger.Println(err)
+			return nil
+		}
+		if response.Error == "timeout" {
+			return nil
+		}
+		rtt := float32(response.Time)
+		if rtt == 0 {
+			rtt = 1
+		}
+
+		hop := &Hop{
 			TTL:    y,
-			RTT:    1,
+			RTT:    rtt,
 			IPAddr: p.IP,
 		}
-		trace.Hops = append(trace.Hops, lastHop)
+		trace.Hops = append(trace.Hops, hop)
 	}
 
 	endTime := time.Now().Unix()
@@ -56,7 +61,7 @@ func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
 		EndTime:   endTime,
 		Status: &Status{
 			State:     HostStateUp,
-			Reason:    "CJDNS-Ping",
+			Reason:    "pingNode",
 			ReasonTTL: 56,
 		},
 		Address: newAddress(t.addr),
@@ -71,8 +76,7 @@ func trace(user *admin.Admin, t *target, hops []*Route, results chan *Host) {
 	if t.name != "" {
 		h.Hostnames = []*Hostname{&Hostname{Name: t.name, Type: HostnameTypeUser}}
 	}
-
-	results <- h
+	return h
 }
 
 func traceAll(user *admin.Admin) []*Host {
@@ -93,7 +97,9 @@ func traceAll(user *admin.Admin) []*Host {
 	traces := make([]*Host, 0, len(hopSets))
 	for _, hops := range hopSets {
 		t, _ := newTarget(hops[len(hops)-1].IP)
-		go trace(user, t, hops, traceChan)
+		go func() {
+			traceChan <- runTrace(user, t, hops)
+		}()
 	}
 	for i := 0; i < len(hopSets); i++ {
 		trace := <-traceChan
@@ -104,35 +110,24 @@ func traceAll(user *admin.Admin) []*Host {
 	return traces
 }
 
-func (t *target) Traceroutes(user *admin.Admin) []*Host {
-	var hopSets [][]*Route
+func (t *target) traceRoute(user *admin.Admin) (*Host, error) {
+	_, err := admin.RouterModule_pingNode(user, t.addr, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := admin.RouterModule_lookup(user, t.addr)
+	if err != nil {
+		logger.Println("the error was ", err)
+		return nil, err
+	}
+	b, err := hex.DecodeString(strings.Replace(response["result"].(string), ".", "", -1))
+	if err != nil {
+		return nil, err
+	}
+	path := binary.BigEndian.Uint64(b)
+
 	table := getTable(user)
-
-	for _, route := range table {
-		if route.IP != t.addr {
-			continue
-		}
-		if route.Link < 1 {
-			continue
-		}
-		hops := getHops(table, route.RawPath)
-		if len(hops) < 1 {
-			continue
-		}
-		hopSets = append(hopSets, hops)
-	}
-
-	traceChan := make(chan *Host)
-	traces := make([]*Host, 0, len(hopSets))
-	for _, hops := range hopSets {
-		go trace(user, t, hops, traceChan)
-	}
-	for i := 0; i < len(hopSets); i++ {
-		trace := <-traceChan
-		if trace != nil {
-			traces = append(traces, trace)
-		}
-	}
-	return traces
+	hops := getHops(table, path)
+	return runTrace(user, t, hops), nil
 }
-

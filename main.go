@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/inhies/go-cjdns/admin"
 	"os"
 	//"sync"
 	"encoding/xml"
 	"time"
+	"log"
 )
 
 const (
@@ -26,6 +28,7 @@ const (
 )
 
 var (
+	logger *log.Logger
 	PingTimeout  int
 	PingCount    int
 	PingInterval float64
@@ -43,6 +46,7 @@ var (
 func usage() {
 	fmt.Println("usage:", os.Args[0], "[-all] [HOST ...]")
 	fmt.Println("'-all' will chart all the routes in the local routing table. Nodes will not be pinged.")
+	//fmt.Println("'-peers' will simply print out the current overlay peers.")
 	os.Exit(1)
 }
 
@@ -50,10 +54,11 @@ func main() {
 	if len(os.Args) == 1 {
 		usage()
 	}
+	logger = log.New(os.Stderr, "", 0)
+
 	user, err := adminConnect()
 	if err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+		logger.Fatalln("Error:", err)
 	}
 
 	var args string
@@ -76,6 +81,14 @@ func main() {
 		case "-h", "--help":
 			usage()
 
+		case "-peers", "--peers":
+			response, err := admin.IpTunnel_listConnections(user)
+			if err != nil {
+				logger.Fatalln("Error:", err)
+			}
+			fmt.Println(response)
+			os.Exit(0)
+
 		case "-all", "--all":
 			traces := traceAll(user)
 			run.Hosts = append(run.Hosts, traces...)
@@ -83,11 +96,15 @@ func main() {
 		default:
 			target, err := newTarget(arg)
 			if err != nil {
-				fmt.Println("Error:", err)
+				logger.Println("Error:", err)
 				continue
 			}
-			traces := target.Traceroutes(user)
-			run.Hosts = append(run.Hosts, traces...)
+			trace, err := target.traceRoute(user)
+			if err != nil {
+				logger.Println("errored here")
+				logger.Println("Error:", err)
+			}
+			run.Hosts = append(run.Hosts, trace)
 		}
 	}
 
@@ -101,8 +118,7 @@ func main() {
 
 	oX, err := xml.Marshal(run)
 	if err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+		logger.Fatalln("Error:", err)
 	}
 
 	fmt.Fprint(os.Stdout, xml.Header)
