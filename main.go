@@ -68,7 +68,7 @@ func main() {
 		Args:             args,
 		Start:            startTime.Unix(),
 		Startstr:         startTime.String(),
-		Version:          "0.0a",
+		Version:          "0.1",
 		XMLOutputVersion: "1.04",
 	}
 
@@ -76,6 +76,9 @@ func main() {
 		switch arg {
 		case "-h", "--help":
 			usage()
+			
+		case "-all", "--all":
+			run.Hosts = append(run.Hosts, traceAll(user)...)
 
 		default:
 			target, err := newTarget(arg)

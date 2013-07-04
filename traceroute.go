@@ -3,10 +3,25 @@ package main
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"github.com/inhies/go-cjdns/admin"
+	"github.com/3M3RY/go-cjdns/admin"
+	"sort"
 	"strings"
 	"time"
 )
+
+type Routes []*Route
+
+func (s Routes) Len() int      { return len(s) }
+func (s Routes) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+type ByPath struct{ Routes }
+
+func (s ByPath) Less(i, j int) bool { return s.Routes[i].RawPath < s.Routes[j].RawPath }
+
+//Sorts with highest quality link at the top
+type ByQuality struct{ Routes }
+
+func (s ByQuality) Less(i, j int) bool { return s.Routes[i].RawLink > s.Routes[j].RawLink }
 
 func log2x64(number uint64) uint {
 	var out uint
@@ -43,10 +58,12 @@ func getHops(table []*Route, fullPath uint64) (output []*Route) {
 			output = append(output, route)
 		}
 	}
+
+	sort.Sort(ByPath{output})
 	return
 }
 
-func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
+func (t *target) runTrace(user *admin.Admin, hops []*Route) (*Host, error) {
 	startTime := time.Now().Unix()
 	trace := &Trace{Proto: "CJDNS"}
 	for y, p := range hops {
@@ -54,17 +71,13 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 			continue
 		}
 
-		logger.Printf("Pinging %v\t", p.IP)
-		pong, err := admin.RouterModule_pingNode(user, p.IP, 1024)
+		logger.Printf("\tpinging %v", p.IP)
+		// Ping by path so we don't get RTT for a different route.
+		rtt, err := admin.SwitchPinger_ping(user, p.Path, 0)
 		if err != nil {
 			logger.Println(err)
-			return nil
+			return nil, err
 		}
-		if pong.Error == "timeout" {
-			logger.Println("timeout")
-			return nil
-		}
-		rtt := float32(pong.Time)
 		if rtt == 0 {
 			rtt = 1
 		}
@@ -73,6 +86,7 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 			TTL:    y,
 			RTT:    rtt,
 			IPAddr: p.IP,
+			//Host:   p.Path,
 		}
 		trace.Hops = append(trace.Hops, hop)
 	}
@@ -98,60 +112,68 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 	if t.name != "" {
 		h.Hostnames = []*Hostname{&Hostname{Name: t.name, Type: HostnameTypeUser}}
 	}
-	return h
+	return h, nil
 }
 
 func (t *target) traceRoute(user *admin.Admin) (*Host, error) {
-	// Ping to force a lookup if there isn't a route already.
-	_, err := admin.RouterModule_pingNode(user, t.addr, 0)
+	// Ping to try and force CJDNS to determine a fresh route?
+	//_, _, err := admin.RouterModule_pingNode(user, t.addr, 0)
+	// should put the version string somewhere in the XML output
+	//if err != nil {
+	// return nil, err
+	//}
+
+	pathS, err := admin.RouterModule_lookup(user, t.addr)
 	if err != nil {
 		return nil, err
+	}
+	if len(pathS) > 19 { // Got an address@route
+		logger.Print(t.name, " is not in routing table, but is accessible through ", pathS)
+		pathS = pathS[40:]
+	} else {
+		logger.Print(t.name, " path: ", pathS)
 	}
 
-	response, err := admin.RouterModule_lookup(user, t.addr)
+	pathS = strings.Replace(pathS, ".", "", -1)
+	pathB, err := hex.DecodeString(pathS)
 	if err != nil {
 		return nil, err
 	}
-	s := response["result"].(string)
-	if len(s) > 19 { // Got an address@route
-		s = s[40:]
-	}
-	s = strings.Replace(s, ".", "", -1)
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	path := binary.BigEndian.Uint64(b)
+	pathI := binary.BigEndian.Uint64(pathB)
 
 	table := getTable(user)
-	hops := getHops(table, path)
-	return runTrace(user, t, hops), nil
+	hops := getHops(table, pathI)
+	return t.runTrace(user, hops)
 }
 
-func (t *target) traceRoutes(user *admin.Admin) (traces []*Host, err error) {
+func traceAll(user *admin.Admin) (traces []*Host) {
 	table := getTable(user)
-	logger.Println("Finding all routes to", t.addr)
+	sort.Sort(ByQuality{table})
 
-	for i := range table {
-		if table[i].IP != t.addr {
+	traced := make(map[string]bool)
+
+	for _, route := range table {
+		if traced[route.IP] || route.Link < 1 {
 			continue
 		}
-		if table[i].Link < 1 {
-			continue
-		}
 
-		hops := getHops(table, table[i].RawPath)
+		hops := getHops(table, route.RawPath)
 		if hops == nil {
 			continue
 		}
 
-		trace := runTrace(user, t, hops)
+		t, err := newTarget(route.IP)
 		if err != nil {
-			logger.Println(err)
 			continue
 		}
+		logger.Println("Tracing route to", route.IP, "through path", route.Path)
 
-		traces = append(traces, trace)
+		if trace, err := t.runTrace(user, hops); err == nil {
+			traces = append(traces, trace)
+			traced[route.IP] = true
+		} else {
+			logger.Println("Error tracing ", route.Path, ": ", err)
+		}
 	}
 	return
 }

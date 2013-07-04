@@ -18,7 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/inhies/go-cjdns/admin"
+	"github.com/3M3RY/go-cjdns/admin"
 	"github.com/inhies/go-cjdns/config"
 	"io/ioutil"
 	"math/rand"
