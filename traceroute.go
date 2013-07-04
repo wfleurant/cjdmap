@@ -4,20 +4,43 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"github.com/inhies/go-cjdns/admin"
-	"math"
 	"strings"
 	"time"
 )
 
+func log2x64(number uint64) uint {
+	var out uint
+	for number != 0 {
+		number = number >> 1
+		out++
+	}
+	return out
+}
+
+func isBehind(destination uint64, midPath uint64) bool {
+	if midPath > destination {
+		return false
+	}
+	mask := ^uint64(0) >> (64 - log2x64(midPath))
+	return (destination & mask) == (midPath & mask)
+}
+
+// WARNING: this depends on implementation quirks of the router and will be broken in the future.
+func isOneHop(destination uint64, midPath uint64) bool {
+	c := destination >> log2x64(midPath)
+	if c&1 != 0 {
+		return log2x64(c) == 4
+	}
+	if c&3 != 0 {
+		return log2x64(c) == 7
+	}
+	return log2x64(c) == 10
+}
+
 func getHops(table []*Route, fullPath uint64) (output []*Route) {
-	for i := range table {
-		candPath := table[i].RawPath
-
-		g := 64 - uint64(math.Log2(float64(candPath)))
-		h := uint64(uint64(0xffffffffffffffff) >> g)
-
-		if h&fullPath == h&candPath {
-			output = append(output, table[i])
+	for _, route := range table {
+		if isBehind(fullPath, route.RawPath) {
+			output = append(output, route)
 		}
 	}
 	return
@@ -31,12 +54,14 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 			continue
 		}
 
+		logger.Printf("Pinging %v\t", p.IP)
 		pong, err := admin.RouterModule_pingNode(user, p.IP, 1024)
 		if err != nil {
 			logger.Println(err)
 			return nil
 		}
 		if pong.Error == "timeout" {
+			logger.Println("timeout")
 			return nil
 		}
 		rtt := float32(pong.Time)
@@ -101,4 +126,32 @@ func (t *target) traceRoute(user *admin.Admin) (*Host, error) {
 	table := getTable(user)
 	hops := getHops(table, path)
 	return runTrace(user, t, hops), nil
+}
+
+func (t *target) traceRoutes(user *admin.Admin) (traces []*Host, err error) {
+	table := getTable(user)
+	logger.Println("Finding all routes to", t.addr)
+
+	for i := range table {
+		if table[i].IP != t.addr {
+			continue
+		}
+		if table[i].Link < 1 {
+			continue
+		}
+
+		hops := getHops(table, table[i].RawPath)
+		if hops == nil {
+			continue
+		}
+
+		trace := runTrace(user, t, hops)
+		if err != nil {
+			logger.Println(err)
+			continue
+		}
+
+		traces = append(traces, trace)
+	}
+	return
 }
