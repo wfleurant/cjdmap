@@ -23,26 +23,23 @@ func getHops(table []*Route, fullPath uint64) (output []*Route) {
 	return
 }
 
-/* TODO
-Store pings in a per route/host map for caching and averaging.
-*/
 func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 	startTime := time.Now().Unix()
-	trace := &Trace{Proto: "lookup"}
+	trace := &Trace{Proto: "CJDNS"}
 	for y, p := range hops {
 		if y == 0 {
 			continue
 		}
 
-		response, err := admin.RouterModule_pingNode(user, p.IP, 1024)
+		pong, err := admin.RouterModule_pingNode(user, p.IP, 1024)
 		if err != nil {
 			logger.Println(err)
 			return nil
 		}
-		if response.Error == "timeout" {
+		if pong.Error == "timeout" {
 			return nil
 		}
-		rtt := float32(response.Time)
+		rtt := float32(pong.Time)
 		if rtt == 0 {
 			rtt = 1
 		}
@@ -66,11 +63,11 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 		},
 		Address: newAddress(t.addr),
 		Trace:   trace,
-		Times: &Times{ // Don't know what to do with this element yet.
-			SRTT:   1,
-			RTTVar: 1,
-			To:     1,
-		},
+		//Times: &Times{ // Don't know what to do with this element yet.
+		//	SRTT:   1,
+		//	RTTVar: 1,
+		//	To:     1,
+		//},
 	}
 
 	if t.name != "" {
@@ -79,38 +76,8 @@ func runTrace(user *admin.Admin, t *target, hops []*Route) *Host {
 	return h
 }
 
-func traceAll(user *admin.Admin) []*Host {
-	var hopSets [][]*Route
-	table := getTable(user)
-
-	for _, route := range table {
-		if route.Link < 1 {
-			continue
-		}
-		hops := getHops(table, route.RawPath)
-		if len(hops) < 1 {
-			continue
-		}
-		hopSets = append(hopSets, hops)
-	}
-	traceChan := make(chan *Host)
-	traces := make([]*Host, 0, len(hopSets))
-	for _, hops := range hopSets {
-		t, _ := newTarget(hops[len(hops)-1].IP)
-		go func() {
-			traceChan <- runTrace(user, t, hops)
-		}()
-	}
-	for i := 0; i < len(hopSets); i++ {
-		trace := <-traceChan
-		if trace != nil {
-			traces = append(traces, trace)
-		}
-	}
-	return traces
-}
-
 func (t *target) traceRoute(user *admin.Admin) (*Host, error) {
+	// Ping to force a lookup if there isn't a route already.
 	_, err := admin.RouterModule_pingNode(user, t.addr, 0)
 	if err != nil {
 		return nil, err
@@ -118,10 +85,14 @@ func (t *target) traceRoute(user *admin.Admin) (*Host, error) {
 
 	response, err := admin.RouterModule_lookup(user, t.addr)
 	if err != nil {
-		logger.Println("the error was ", err)
 		return nil, err
 	}
-	b, err := hex.DecodeString(strings.Replace(response["result"].(string), ".", "", -1))
+	s := response["result"].(string)
+	if len(s) > 19 { // Got an address@route
+		s = s[40:]
+	}
+	s = strings.Replace(s, ".", "", -1)
+	b, err := hex.DecodeString(s)
 	if err != nil {
 		return nil, err
 	}

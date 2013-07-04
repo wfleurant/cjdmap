@@ -1,13 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"github.com/inhies/go-cjdns/admin"
-	"os"
-	//"sync"
 	"encoding/xml"
-	"time"
+	"fmt"
 	"log"
+	"os"
+	"time"
 )
 
 const (
@@ -28,7 +26,7 @@ const (
 )
 
 var (
-	logger *log.Logger
+	logger       *log.Logger
 	PingTimeout  int
 	PingCount    int
 	PingInterval float64
@@ -44,9 +42,7 @@ var (
 )
 
 func usage() {
-	fmt.Println("usage:", os.Args[0], "[-all] [HOST ...]")
-	fmt.Println("'-all' will chart all the routes in the local routing table. Nodes will not be pinged.")
-	//fmt.Println("'-peers' will simply print out the current overlay peers.")
+	fmt.Println("usage:", os.Args[0], "HOST [HOST ...]")
 	os.Exit(1)
 }
 
@@ -81,18 +77,6 @@ func main() {
 		case "-h", "--help":
 			usage()
 
-		case "-peers", "--peers":
-			response, err := admin.IpTunnel_listConnections(user)
-			if err != nil {
-				logger.Fatalln("Error:", err)
-			}
-			fmt.Println(response)
-			os.Exit(0)
-
-		case "-all", "--all":
-			traces := traceAll(user)
-			run.Hosts = append(run.Hosts, traces...)
-
 		default:
 			target, err := newTarget(arg)
 			if err != nil {
@@ -101,7 +85,6 @@ func main() {
 			}
 			trace, err := target.traceRoute(user)
 			if err != nil {
-				logger.Println("errored here")
 				logger.Println("Error:", err)
 			}
 			run.Hosts = append(run.Hosts, trace)

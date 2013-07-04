@@ -125,7 +125,7 @@ func adminConnect() (user *admin.Admin, err error) {
 			// Try getting it from the .cjdnsadmin file
 			cjdAdmin, err := loadCjdnsadmin()
 			if err != nil {
-				err = fmt.Errorf("Unable to load configuration file:", err.Error())
+				err = fmt.Errorf("Unable to load configuration file: %s", err.Error())
 				return nil, err
 			}
 
