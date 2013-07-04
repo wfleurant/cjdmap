@@ -19,7 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/3M3RY/go-cjdns/admin"
-	"github.com/inhies/go-cjdns/config"
+	"github.com/3M3RY/go-cjdns/config"
 	"io/ioutil"
 	"math/rand"
 	"net"

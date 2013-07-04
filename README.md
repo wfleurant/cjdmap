@@ -7,7 +7,7 @@ Zenmap(nmapfe) will not plot multiple routes for single host, so rather
 than attempt to find any and all routes, cjdmap outputs the route returned
 by the CJDNS RouterModule_lookup function.
 
-I think these routes are accurate, but make for sufficient estimates.
+I don't think these routes are accurate, but make for sufficient estimates.
 
 Screenshot http://urlcloud.net/uuhM
 
